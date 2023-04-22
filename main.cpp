@@ -106,7 +106,7 @@ int main()
 
 		if (sum == 0 && !first)
 		{
-			cout << "���������� ����������\n";
+			cout << "Размещение невозможно\n";
 			return EXIT_SUCCESS;
 		}
 
