@@ -20,6 +20,9 @@ int *warehouse;
 
 bool place(int x1, int y1, int z1, int w, int h, int d, int boxIdx)
 {
+	if (x1 + w > W || y1 + h > H || z1 + d > D)
+		return false;
+
 	for (int x = x1; x < x1 + w; ++x)
 	{
 		for (int y = y1; y < y1 + h; ++y)
