@@ -1,7 +1,12 @@
 #include <iostream>
 #include <fstream>
+#include <cstring>
+
+#include <chrono>
+using namespace std::chrono;
 
 using namespace std;
+
 
 struct Box
 {
@@ -10,17 +15,61 @@ struct Box
 	int offset = 0;
 };
 
-int W, H, D;
+struct Space
+{
+	int w, h, d;
+
+	Space()
+	{
+		this->w = 0;
+		this->h = 0;
+		this->d = 0;
+	}
+
+	Space(int w, int h, int d)
+	{
+		this->w = w;
+		this->h = h;
+		this->d = d;
+	}
+
+	inline int x(int i)
+	{
+		return (i % w);
+	}
+
+	inline int y(int i)
+	{
+		return (i / w % h);
+	}
+
+	inline int z(int i)
+	{
+		return (i / (w*h));
+	}
+
+	inline int idx(int x, int y, int z)
+	{
+		return (z * (w*h) + y * w + x);
+	}
+
+	inline int v()
+	{
+		return w * h * d;
+	}
+};
+
+constexpr int EMPTY = 999;
 int *warehouse;
-#define IDX(x, y, z) (z * (W*H) + y * W + x)
-#define X(i) (i % W)
-#define Y(i) (i / W % H)
-#define Z(i) (i / (W*H))
-#define XYZ(i) X(i), Y(i), Z(i)
+Space whs; // warehouse space
+Box *boxes;
+#define XYZ(space, i) space.x(i), space.y(i), space.z(i)
+#define FREEI(i, boxIdx) (warehouse[i] > boxIdx)
+#define FREE(x, y, z, boxIdx) (warehouse[whs.idx(x, y, z)] > boxIdx)
 
 bool place(int x1, int y1, int z1, int w, int h, int d, int boxIdx)
 {
-	if (x1 + w > W || y1 + h > H || z1 + d > D)
+	if (x1 + w > whs.w || y1 + h > whs.h || z1 + d > whs.d)
 		return false;
 
 	for (int x = x1; x < x1 + w; ++x)
@@ -29,7 +78,7 @@ bool place(int x1, int y1, int z1, int w, int h, int d, int boxIdx)
 		{
 			for (int z = z1; z < z1 + d; ++z)
 			{
-				if (warehouse[IDX(x, y, z)] != -1)
+				if (!FREE(x, y, z, boxIdx))
 				{
 					return false;
 				}
@@ -43,7 +92,7 @@ bool place(int x1, int y1, int z1, int w, int h, int d, int boxIdx)
 		{
 			for (int z = z1; z < z1 + d; ++z)
 			{
-				warehouse[IDX(x, y, z)] = boxIdx;
+				warehouse[whs.idx(x, y, z)] = boxIdx;
 			}
 		}
 	}
@@ -51,112 +100,195 @@ bool place(int x1, int y1, int z1, int w, int h, int d, int boxIdx)
 	return true;
 }
 
-// void printWarehouse()
-// {
-// 	for (int z = 0; z < D; ++z) 
-// 	{
-// 		for (int y = 0; y < H; ++y)
-// 		{
-// 			for (int x = 0; x < W; ++x)
-// 			{
-// 				int value = warehouse[IDX(x, y, z)];
-// 				if (value != -1)
-// 					cout << value;
-// 				else
-// 					cout << ".";
-// 			}
-// 			cout << "\n";
-// 		}
-// 		cout << "\n";
-// 	}
+void clear(int boxIdx)
+{
+	for (int i = 0; i < whs.v(); ++i)
+		if (warehouse[i] == boxIdx)
+			warehouse[i] = EMPTY;
+}
 
-// 	return;
-// }
+void printWarehouse()
+{
+	cout << "\nWarehouse [\n";
+	for (int z = 0; z < whs.d; ++z) 
+	{
+		for (int y = 0; y < whs.h; ++y)
+		{
+			for (int x = 0; x < whs.w; ++x)
+			{
+				int value = warehouse[whs.idx(x, y, z)];
+				if (value != EMPTY)
+					cout << value;
+				else
+					cout << ".";
+			}
+			cout << "\n";
+		}
 
-int main()
+		if (z != whs.d - 1)
+			cout << "-\n";
+	}
+	cout << "]\n";
+
+	return;
+}
+
+class Iterator {
+public:
+	int n;
+	int* offsets;
+	int* offsetsSizes;
+	Space* spaces;
+	int totalCalls = 0;
+	
+
+	Iterator(int n) {
+		this->n = n;
+		offsets = new int[n];
+		offsetsSizes = new int[n];
+		spaces = new Space[n];
+
+		for (int i = 0; i < n; ++i)
+		{
+			offsets[i] = 0;
+			spaces[i] = Space((whs.w + 1 - boxes[i].w), (whs.h + 1 - boxes[i].h), (whs.d + 1 - boxes[i].d));
+			offsetsSizes[i] = spaces[i].w * spaces[i].h * spaces[i].d;
+		}
+	}
+
+	bool go(int i) {
+		++totalCalls;
+
+		// if (false)
+		// {
+		// 	cout << '[' << i << ']' <<  " Offsets: ";
+		// 	for (int j = 0; j <= i; ++j)
+		// 	{
+		// 		cout << offsets[j] << " ";
+		// 	}
+		// 	cout << "\n";
+		// 	printWarehouse();
+		// }
+
+		if (canPlace(i))
+		{
+			if (i == n - 1)
+				return true;
+			
+			int& nextOffset = offsets[i + 1];
+			int& nextOffsetSize = offsetsSizes[i + 1];
+			for (nextOffset = 0; nextOffset < nextOffsetSize; ++nextOffset)
+			{
+				// Fast skip:
+				int x, y, z;
+				getXYZ(i + 1, x, y, z);
+				if (!FREE(x, y, z, i + 1))
+					continue;
+				//
+
+				if (go(i + 1))
+					return true;
+			}
+
+			clear(i);
+			return false;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	bool canPlace(int i) {
+		if (i == -1)
+			return true;
+
+		Box& box = boxes[i];
+		getXYZ(i, box.x, box.y, box.z);
+
+		return place(box.x, box.y, box.z, box.w, box.h, box.d, i);
+	}
+
+	inline void getXYZ(int i, int& x, int& y, int& z)
+	{
+		int& offset = offsets[i];
+		Space& space = spaces[i];
+
+		x = space.x(offset);
+		y = space.y(offset);
+		z = space.z(offset);
+	}
+};
+
+#define CANT "Размещение невозможно\n"
+#define VERBOSE (argc > 1 && strcmp(argv[1], "-v") == 0)
+
+int main(int argc, char *argv[])
 {
 	setlocale(LC_ALL, "Russian");
+	auto start = high_resolution_clock::now();
 
 	ifstream fin("input");
 
-	fin >> W >> H >> D;
+	fin >> whs.w >> whs.h >> whs.d;
 	int n;
 	fin >> n;
-	Box *boxes = new Box[n];
+	boxes = new Box[n];
+	int boxesV = 0;
 	for (int i = 0; i < n; ++i)
 	{
 		fin >> boxes[i].w >> boxes[i].h >> boxes[i].d;
+		boxesV += boxes[i].w * boxes[i].h * boxes[i].d;
 	}
 	fin.close();
 
-	warehouse = new int[H * W * D];
+	if (boxesV > whs.w * whs.h * whs.d)
+	{
+		cout << CANT;
+		return EXIT_SUCCESS;
+	}
+
+	warehouse = new int[whs.h * whs.w * whs.d];
+	for (int i = 0; i < whs.h * whs.w * whs.d; ++i)
+	{
+		warehouse[i] = EMPTY;
+	}
 
 	bool possibleVariant = true;
 	long long variant = 0;
 	bool first = true;
-	while (true)
+	Iterator iterator(n);
+
+	bool result = iterator.go(-1);
+
+	if (VERBOSE)
 	{
-		int offsetsLeft = H * W;
-
-		long long currVariant = variant;
-		int sum = 0;
-		for (int i = n - 1; i >= 0; --i)
-		{
-			boxes[i].offset = currVariant % (long long)(H * W * D);
-			sum += boxes[i].offset;
-			currVariant /= (long long)(H * W * D);
-		}
-
-		if (sum == 0 && !first)
-		{
-			cout << "Размещение невозможно\n";
-			return EXIT_SUCCESS;
-		}
-
-		first = false;
-
-		for (int i = 0; i < H * W * D; ++i)
-		{
-			warehouse[i] = -1;
-		}
-		possibleVariant = true;
-		int boxIdx = 0;
-		while (boxIdx < n)
-		{
-			if (place(XYZ(boxes[boxIdx].offset), boxes[boxIdx].w, boxes[boxIdx].h, boxes[boxIdx].d, boxIdx))
-			{
-				boxes[boxIdx].x = X(boxes[boxIdx].offset);
-				boxes[boxIdx].y = Y(boxes[boxIdx].offset);
-				boxes[boxIdx].z = Z(boxes[boxIdx].offset);
-				++boxIdx;
-			}
-			else
-			{
-				possibleVariant = false;
-				break;
-			}
-		}
-
-		if (possibleVariant)
-			break;
-
-		variant += 1;
+		cout << "Can: " << (result ? "yes" : "no") << "\n";
+		cout << "Total calls: " << iterator.totalCalls << "\n";
+		auto stop = high_resolution_clock::now();
+		auto duration = duration_cast<milliseconds>(stop - start);
+		cout << "Total time: " << duration.count() << "ms" << endl;
 	}
 
-	if (possibleVariant)
+	if (!result)
 	{
-		for (int i = 0; i < n; ++i)
-		{
-			cout << "(" << boxes[i].x << ", " << boxes[i].y << ", " << boxes[i].z << ") ";
-			cout << "(" << 
-			boxes[i].x + boxes[i].w << ", " << 
-			boxes[i].y + boxes[i].h << ", " << 
-			boxes[i].z + boxes[i].d << 
-			") \n";
-		}
+		cout << CANT;
+		return EXIT_SUCCESS;
 	}
 
-	// printWarehouse();
+
+	for (int i = 0; i < n; ++i)
+	{
+		cout << "(" << boxes[i].x << ", " << boxes[i].y << ", " << boxes[i].z << ") ";
+		cout << "(" << 
+		boxes[i].x + boxes[i].w << ", " << 
+		boxes[i].y + boxes[i].h << ", " << 
+		boxes[i].z + boxes[i].d << 
+		") \n";
+	}
+
+	if (VERBOSE)
+		printWarehouse();
 
 	return EXIT_SUCCESS;
 }
